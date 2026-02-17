@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [windows-latest]
 
     steps:
       - name: Checkout Code
@@ -33,30 +33,12 @@ jobs:
       - name: Install Dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build Application (macOS)
-        if: matrix.os == 'macos-latest'
-        run: npm run build:mac
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Application (Windows)
-        if: matrix.os == 'windows-latest'
         run: npm run build:win
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifacts (macOS)
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: XL-Compare-macOS
-          path: |
-            release/*.dmg
-            release/*.zip
-          retention-days: 1
-
       - name: Upload Artifacts (Windows)
-        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: XL-Compare-Windows
