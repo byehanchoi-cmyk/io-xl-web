@@ -66,6 +66,23 @@ const App: React.FC = () => {
   const [isPrinting, setIsPrinting] = useState(false);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
   const isProcessingPrint = useRef(false);
+  const headerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isWindows = (window as any).electron?.isWindows || false;
+  const [isHeaderVisible, setIsHeaderVisible] = useState(!isWindows);
+
+  const handleMouseEnterHeader = () => {
+    if (!isWindows) return;
+    if (headerTimeoutRef.current) clearTimeout(headerTimeoutRef.current);
+    setIsHeaderVisible(true);
+  };
+
+  const handleMouseLeaveHeader = () => {
+    if (!isWindows) return;
+    headerTimeoutRef.current = setTimeout(() => {
+      setIsHeaderVisible(false);
+    }, 1000);
+  };
 
   // Add Row/Column State
   const [isAddRowOpen, setIsAddRowOpen] = useState(false);
@@ -227,7 +244,19 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className="h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800 z-30 shadow-lg">
+      {isWindows && (
+        <div
+          className="header-hit-area"
+          onMouseEnter={handleMouseEnterHeader}
+        />
+      )}
+
+      <header
+        onMouseEnter={handleMouseEnterHeader}
+        onMouseLeave={handleMouseLeaveHeader}
+        className={`h-16 flex items-center justify-between px-6 bg-slate-950 border-b border-slate-800 z-30 shadow-lg ${isWindows ? `header-autohide ${isHeaderVisible ? 'visible' : 'hidden'}` : ''
+          }`}
+      >
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3 group cursor-pointer" onClick={handleLogoClick}>
             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-105 transition-transform">

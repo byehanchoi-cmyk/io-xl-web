@@ -67,3 +67,36 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:active {
   background-color: #93c5fd !important;
 }
+
+/* Auto-hide Header Styles */
+.header-autohide {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  z-index: 50;
+}
+
+.header-autohide.hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.header-autohide.visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Detection Hit Area */
+.header-hit-area {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  z-index: 40;
+  background: transparent;
+}

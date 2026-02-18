@@ -24,7 +24,8 @@ contextBridge.exposeInMainWorld('electron', {
         getRules: (type?: string) => ipcRenderer.invoke('db-get-rules', type),
         saveMappingIntel: (data: any) => ipcRenderer.invoke('db-save-mapping-intel', data),
         getMappingIntel: () => ipcRenderer.invoke('db-get-mapping-intel'),
-    }
+    },
+    isWindows: process.platform === 'win32'
 });
 
 window.addEventListener('DOMContentLoaded', () => {

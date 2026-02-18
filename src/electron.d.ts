@@ -23,6 +23,7 @@ export interface IElectronAPI {
         saveMappingIntel: (data: { refCol: string; compCol: string }) => Promise<any>;
         getMappingIntel: () => Promise<any[]>;
     };
+    isWindows: boolean;
 }
 
 declare global {
