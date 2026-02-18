@@ -27,8 +27,8 @@ Windows PC에 다음이 설치되어 있어야 합니다:
 GitHub에 업로드된 프로젝트를 Windows PC로 복제합니다.
 
 ```bash
-git clone https://github.com/Byeonghan-CHOI/IO_XL-WEB.git
-cd IO_XL-WEB
+git clone https://github.com/byehanchoi-cmyk/io-xl-web.git
+cd io-xl-web
 ```
 
 ---
