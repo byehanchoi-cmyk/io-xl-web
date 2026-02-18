@@ -44,5 +44,5 @@ jobs:
         with:
           name: XL-Compare-Windows
           path: |
-            release/*-setup.exe
+            release/*.exe
           retention-days: 7
