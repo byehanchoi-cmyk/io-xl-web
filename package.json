@@ -1,7 +1,7 @@
 {
   "name": "xl-compare",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "dist-electron/main.js",
   "author": "Engineering_IO",
   "description": "High-Performance Excel Data Comparison Tool",
