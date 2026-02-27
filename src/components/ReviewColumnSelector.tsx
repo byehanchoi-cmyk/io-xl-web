@@ -8,9 +8,8 @@ interface ReviewColumnSelectorProps {
 
 export const ReviewColumnSelector: React.FC<ReviewColumnSelectorProps> = ({ onClose }) => {
     const {
-        mappings, setMappings, runComparison, pkColumn, skColumn, exclusionRules,
+        mappings, setMappings,
         setSelectedReviewColumns, selectedReviewColumns,
-        refSheetIdx, compSheetIdx, refHeaderRow, compHeaderRow, columnExclusion,
         setLastRunConfig, generateConfigSnapshot,
         allGeneratedColumns, deleteColumn
     } = useGridStore();

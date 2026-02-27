@@ -311,6 +311,7 @@ export const MappingScreen: React.FC = () => {
             }, 100);
             return () => clearTimeout(timer);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refSheetIdx, compSheetIdx, isConfigLoaded]);
 
     // Initial Auto-match / Bad mapping check

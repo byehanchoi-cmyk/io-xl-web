@@ -81,8 +81,9 @@ app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-software-rasterizer');
 app.commandLine.appendSwitch('disable-gpu-compositing');
 app.commandLine.appendSwitch('disable-gpu-rasterization');
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('disable-features', 'PrintCompositorLPAC,PrintJobOop,PrintManagementChildProcess');
-// -------------------------------------------------------------------------
 
 // Handle file operations via IPC
 ipcMain.handle('read-file', async (_event, filePath) => {
@@ -121,8 +122,8 @@ ipcMain.handle('create-directory', async (_event, dirPath) => {
 
 ipcMain.handle('check-file-exists', async (_event, filePath) => {
     try {
-        await fs.access(filePath);
-        return true;
+        const stat = await fs.stat(filePath);
+        return stat.isFile();
     } catch {
         return false;
     }

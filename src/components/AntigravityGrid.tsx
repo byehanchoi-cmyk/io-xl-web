@@ -9,16 +9,19 @@ import type {
     GridCell,
     EditableGridCell,
     Theme,
-    HeaderClickedEventArgs,
     GridSelection,
+    HeaderClickedEventArgs,
+    Rectangle
 } from '@glideapps/glide-data-grid';
+import { CompactSelection } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
 import { useGridStore, type GridColumn as StoreGridColumn } from '../store/gridStore';
 import { isValuesMatch } from '../utils/comparisonEngine';
 import { ConfirmModal } from './ConfirmModal';
 import { ColumnFilterPopup } from './ColumnFilterPopup';
+import { GridFindReplace, FindOptions } from './GridFindReplace';
 
-interface AntigravityGridProps {
+export interface AntigravityGridProps {
     width?: number;
     height?: number;
 }
@@ -96,6 +99,12 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
     const [activeMemoCell, setActiveMemoCell] = useState<{ row: number; col: number; bounds?: { x: number; y: number; width: number; height: number } } | null>(null);
     const [copiedMemo, setCopiedMemo] = useState<string | null>(null);
 
+    // Find and Replace State
+    const [isFindOpen, setIsFindOpen] = useState(false);
+    const [findMode, setFindMode] = useState<'find' | 'replace'>('find');
+    const [findMatches, setFindMatches] = useState<{ colIdx: number; rowIdx: number }[]>([]);
+    const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
+
     // Close context menu on click outside
     useEffect(() => {
         const closeMenu = (e: MouseEvent) => {
@@ -115,6 +124,19 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
         return () => window.removeEventListener('click', closeMenu);
     }, [contextMenu]);
 
+    // Open Find dialog via context menu
+    const openFind = () => {
+        setFindMode('find');
+        setIsFindOpen(true);
+        setContextMenu(null);
+    };
+
+    // Open Replace dialog via context menu
+    const openReplace = () => {
+        setFindMode('replace');
+        setIsFindOpen(true);
+        setContextMenu(null);
+    };
 
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,10 +274,13 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
             } else {
                 deleteMemo(targetRow.integratedKey, targetCol.id);
             }
+            setIsMemoEditOpen(false);
+            setMemoEditText('');
         }
-        setIsMemoEditOpen(false);
         setActiveMemoCell(null);
     };
+
+
 
     const [reviewConfirmState, setReviewConfirmState] = useState<{
         isOpen: boolean;
@@ -296,11 +321,13 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
         height: height ?? window.innerHeight
     });
     const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(undefined);
+    const [searchBoundary, setSearchBoundary] = useState<Rectangle | null>(null);
     const undoStack = useRef<HistoryChange[][]>([]);
     const redoStack = useRef<HistoryChange[][]>([]);
 
     // Reset selection when columns change to prevent out-of-bounds glitches
     useEffect(() => {
+        // eslint-disable-next-line
         setGridSelection(undefined);
     }, [columns.length]);
 
@@ -854,9 +881,233 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
         }
     }, [gridSelection, filteredRows, columns]);
 
+    // --- Find and Replace Logic ---
+    const executeFind = useCallback((text: string, options: FindOptions, isPrev = false) => {
+        if (!text) return;
+
+        const { filteredRows, columns } = useGridStore.getState();
+        const targetText = options.matchCase ? text : text.toLowerCase();
+        const matches: { colIdx: number; rowIdx: number }[] = [];
+
+        // Determine boundaries
+        let cStartFixed = 0; // if we want to search frozen columns too? Usually we search all data columns.
+        let cEnd = columns.length;
+        let rStart = 0;
+        let rEnd = filteredRows.length;
+
+        // If inSelection and we have a valid selection range
+        let activeBoundary = searchBoundary;
+        if (options.inSelection) {
+            if (!activeBoundary && gridSelection) {
+                let rect: Rectangle | null = null;
+                if (gridSelection.columns && gridSelection.columns.length > 0) {
+                    const cols = [...gridSelection.columns];
+                    const firstCol = cols[0];
+                    const lastCol = cols[cols.length - 1];
+                    rect = { x: firstCol, y: 0, width: lastCol - firstCol + 1, height: filteredRows.length } as Rectangle;
+                } else if (gridSelection.rows && gridSelection.rows.length > 0) {
+                    const rows = [...gridSelection.rows];
+                    const firstRow = rows[0];
+                    const lastRow = rows[rows.length - 1];
+                    rect = { x: 0, y: firstRow, width: columns.length, height: lastRow - firstRow + 1 } as Rectangle;
+                } else if (gridSelection.current?.range) {
+                    rect = gridSelection.current.range;
+                }
+
+                if (rect) {
+                    activeBoundary = rect;
+                    setSearchBoundary(rect);
+                }
+            }
+
+            if (activeBoundary) {
+                cStartFixed = activeBoundary.x;
+                cEnd = activeBoundary.x + activeBoundary.width;
+                rStart = activeBoundary.y;
+                rEnd = activeBoundary.y + activeBoundary.height;
+            }
+        } else {
+            if (searchBoundary) {
+                setSearchBoundary(null);
+            }
+        }
+
+        for (let r = rStart; r < rEnd; r++) {
+            const row = filteredRows[r];
+            if (!row) continue;
+            for (let c = cStartFixed; c < cEnd; c++) {
+                const col = columns[c];
+                if (!col) continue;
+
+                // Safely get string value
+                let val = '';
+                if (col.id === 'exists') {
+                    val = row.exists || '';
+                } else {
+                    val = String(row[col.id] || '');
+                }
+
+                if (!options.matchCase) val = val.toLowerCase();
+
+                if (val.includes(targetText)) {
+                    matches.push({ colIdx: c, rowIdx: r });
+                }
+            }
+        }
+
+        setFindMatches(matches);
+
+        // Calculate next index
+        let nextIdx = -1;
+        if (matches.length > 0) {
+            // Compare items or simply increment/decrement based on previous matching
+            // If the search string hasn't changed heavily, we just move next/prev
+            // For a robust approach, if we just ran a search, currentMatchIndex might be invalid
+            // We just go to the first one, or the one closest to current selection
+
+            let startIdx = 0;
+            if (gridSelection?.current?.cell) {
+                const [curCol, curRow] = gridSelection.current.cell;
+                // Find index of match that is strictly AFTER the current cell (row-major)
+                const afterIdx = matches.findIndex(m => m.rowIdx > curRow || (m.rowIdx === curRow && m.colIdx > curCol));
+
+                if (afterIdx !== -1) {
+                    startIdx = isPrev ? (afterIdx - 1 + matches.length) % matches.length : afterIdx;
+                } else {
+                    startIdx = isPrev ? matches.length - 1 : 0;
+                }
+            }
+
+            nextIdx = startIdx;
+            setCurrentMatchIndex(nextIdx);
+
+            const match = matches[nextIdx];
+            setGridSelection(prev => {
+                const keepRanges = options.inSelection && prev;
+                return {
+                    current: {
+                        cell: [match.colIdx, match.rowIdx] as Item,
+                        range: keepRanges && prev?.current?.range ? prev.current.range : { x: match.colIdx, y: match.rowIdx, width: 1, height: 1 } as Rectangle,
+                        rangeStack: keepRanges && prev?.current?.rangeStack ? prev.current.rangeStack : []
+                    },
+                    columns: keepRanges && prev?.columns ? prev.columns : CompactSelection.empty(),
+                    rows: keepRanges && prev?.rows ? prev.rows : CompactSelection.empty()
+                };
+            });
+
+            // Scroll to cell (optional, we could use a custom ref or trust GlideDataGrid's auto-scroll on selection if we pass it correctly)
+            // GDG will scroll if we have smoothScroll enabled and selection changes, but we might need explicit scrollTo
+            // if (gridRef.current) {
+            //     // @ts-ignore
+            //     // gridRef.current.scrollTo(match.colIdx, match.rowIdx);
+            // }
+        } else {
+            setCurrentMatchIndex(-1);
+        }
+    }, [calculatedFrozenCount, gridSelection, searchBoundary]);
+
+    const handleReplaceOne = useCallback((findText: string, replaceText: string, options: FindOptions) => {
+        if (currentMatchIndex < 0 || currentMatchIndex >= findMatches.length) return;
+
+        const { filteredRows, columns } = useGridStore.getState();
+        const match = findMatches[currentMatchIndex];
+        const row = filteredRows[match.rowIdx];
+        const col = columns[match.colIdx];
+
+        if (!row || !col) return;
+
+        const currentVal = String(row[col.id] || '');
+
+        // Use regex for case-insensitive replacement if needed
+        let newVal = '';
+        if (options.matchCase) {
+            newVal = currentVal.replace(findText, replaceText);
+        } else {
+            const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            newVal = currentVal.replace(regex, replaceText);
+        }
+
+        if (newVal !== currentVal) {
+            // Dispatch single change
+            const storeRows = useGridStore.getState().rows;
+            const originalIdx = storeRows.findIndex(r => r.integratedKey === row.integratedKey);
+
+            if (originalIdx !== -1) {
+                // pushBatch([{
+                //     key: row.integratedKey,
+                //     colId: col.id,
+                //     from: currentVal,
+                //     to: newVal
+                // }]);
+
+                setCellValuesBatch([{
+                    rowIdx: originalIdx,
+                    colId: col.id,
+                    value: newVal
+                }]);
+            }
+        }
+
+        // Automatically find next
+        executeFind(findText, options, false);
+
+    }, [currentMatchIndex, findMatches, setCellValuesBatch, executeFind]);
+
+    const handleReplaceAll = useCallback((findText: string, replaceText: string, options: FindOptions) => {
+        if (!findText || findMatches.length === 0) return;
+
+        const { rows: storeRows, filteredRows, columns } = useGridStore.getState();
+        const updates: { rowIdx: number; colId: string; value: string }[] = [];
+        const history: HistoryChange[] = [];
+
+        // Optimize: keyToIndex mapping
+        const keyToIndexMap = new Map<string, number>();
+        storeRows.forEach((r, i) => keyToIndexMap.set(r.integratedKey, i));
+
+        const regex = options.matchCase
+            ? new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+            : new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+
+        findMatches.forEach(match => {
+            const row = filteredRows[match.rowIdx];
+            const col = columns[match.colIdx];
+            if (!row || !col) return;
+
+            const originalIdx = keyToIndexMap.get(row.integratedKey);
+            if (originalIdx === undefined) return;
+
+            const currentVal = String(row[col.id] || '');
+            const newVal = currentVal.replace(regex, replaceText);
+
+            if (currentVal !== newVal) {
+                history.push({
+                    key: row.integratedKey,
+                    colId: col.id,
+                    from: currentVal,
+                    to: newVal
+                });
+                updates.push({
+                    rowIdx: originalIdx,
+                    colId: col.id,
+                    value: newVal
+                });
+            }
+        });
+
+        if (updates.length > 0) {
+            // pushBatch(history);
+            setCellValuesBatch(updates);
+        }
+
+        // Re-run search to clear matches
+        executeFind(findText, options, false);
+
+    }, [findMatches, setCellValuesBatch, executeFind]);
+    // --- End Find and Replace Logic ---
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            const platform = navigator.platform || (navigator as any).userAgentData?.platform || '';
+            const platform = navigator.platform || (navigator as unknown as { userAgentData?: { platform: string } }).userAgentData?.platform || '';
             const isMac = platform.toUpperCase().indexOf('MAC') >= 0;
             const mod = isMac ? e.metaKey : e.ctrlKey;
 
@@ -884,6 +1135,20 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
             } else if (e.key.toLowerCase() === 'y') {
                 e.preventDefault();
                 applyHistory(redoStack, undoStack);
+            }
+
+            // Find (Cmd+F / Ctrl+F)
+            if (mod && e.key.toLowerCase() === 'f') {
+                e.preventDefault();
+                setFindMode('find');
+                setIsFindOpen(true);
+            }
+
+            // Replace (Cmd+H / Ctrl+H)
+            if (mod && e.key.toLowerCase() === 'h') {
+                e.preventDefault();
+                setFindMode('replace');
+                setIsFindOpen(true);
             }
         };
         window.addEventListener('keydown', onKey);
@@ -961,7 +1226,7 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { label, color, bgColor } = cell.data as any;
+        const { label, color, bgColor } = cell.data as { label?: string, color?: string, bgColor?: string };
 
         ctx.save();
 
@@ -1026,8 +1291,36 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
             );
         }
 
+        // Clamp selection to prevent DataEditor crash when rows/columns shrink
+        let safeGridSelection = gridSelection;
+        if (gridSelection) {
+            let outOfBounds = false;
+            if (gridSelection.current?.cell) {
+                const [c, r] = gridSelection.current.cell;
+                if (r >= filteredRows.length || c >= gridColumns.length || r < 0 || c < 0) {
+                    outOfBounds = true;
+                }
+            }
+            if (!outOfBounds && gridSelection.rows?.length) {
+                const rowsArray = [...gridSelection.rows];
+                if (rowsArray.some(r => r >= filteredRows.length || r < 0)) {
+                    outOfBounds = true;
+                }
+            }
+            if (!outOfBounds && gridSelection.columns?.length) {
+                const colsArray = [...gridSelection.columns];
+                if (colsArray.some(c => c >= gridColumns.length || c < 0)) {
+                    outOfBounds = true;
+                }
+            }
+            if (outOfBounds) {
+                safeGridSelection = undefined;
+            }
+        }
+
         return (
             <DataEditor
+                key={`grid-${gridColumns.length}-${filteredRows.length > 0 ? 'data' : 'empty'}`}
                 getCellContent={getCellContent}
                 columns={gridColumns}
                 rows={filteredRows.length}
@@ -1047,9 +1340,14 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
                 smoothScrollY
                 rowMarkers="number"
                 getCellsForSelection={true}
-                gridSelection={gridSelection}
+                gridSelection={safeGridSelection}
                 onGridSelectionChange={(newSelection) => {
+                    // Prevent clearing selection if focus is lost to find/replace modal
+                    if (isFindOpen && (!newSelection?.current?.cell && !newSelection?.columns?.length && !newSelection?.rows?.length)) {
+                        return;
+                    }
                     setGridSelection(newSelection);
+                    setSearchBoundary(null);
 
                     // Update store with selected row index and column ID
                     if (newSelection.current) {
@@ -1155,6 +1453,18 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
                             >
                                 <span>🗑️</span> 메모 삭제
                             </button>
+                            <button
+                                className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-700 flex items-center gap-2 border-t border-slate-700 mt-1"
+                                onClick={openFind}
+                            >
+                                <span>🔍</span> 셀 찾기 (Ctrl+F)
+                            </button>
+                            <button
+                                className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+                                onClick={openReplace}
+                            >
+                                <span>✏️</span> 셀 바꾸기 (Ctrl+H)
+                            </button>
                         </>
                     )}
 
@@ -1251,6 +1561,27 @@ export const AntigravityGrid = React.memo(function AntigravityGrid({ width, heig
                     onClose={closeFilterPopup}
                 />
             )}
+
+            <GridFindReplace
+                isOpen={isFindOpen}
+                initialMode={findMode}
+                currentMatchIndex={currentMatchIndex}
+                totalMatches={findMatches.length}
+                initialInSelection={!!gridSelection?.current || !!gridSelection?.columns?.length || !!gridSelection?.rows?.length}
+                onClose={() => setIsFindOpen(false)}
+                onFindNext={(text, options) => executeFind(text, options, false)}
+                onFindPrev={(text, options) => executeFind(text, options, true)}
+                onReplace={handleReplaceOne}
+                onReplaceAll={handleReplaceAll}
+                onSearchChange={(text, options) => {
+                    if (text) {
+                        executeFind(text, options, false);
+                    } else {
+                        setFindMatches([]);
+                        setCurrentMatchIndex(-1);
+                    }
+                }}
+            />
 
             <ConfirmModal
                 isOpen={reviewConfirmState.isOpen}

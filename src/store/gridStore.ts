@@ -1316,7 +1316,7 @@ export const useGridStore = create<GridState>()(
             },
 
             applyReviewCompensation: () => {
-                const { rows, pkColumn, skColumn, mappings, columnExclusion, memos } = get();
+                const { rows, pkColumn, mappings, memos } = get();
 
                 // [B1.3] Memo Migration Preparation
 
@@ -1442,12 +1442,13 @@ export const useGridStore = create<GridState>()(
                 });
 
                 // 4. 요약 정보 재계산 (Summary Update)
-                const effectiveMappings = filterMappings(mappings, columnExclusion);
-                const bothRows = finalRows.filter(r => r.exists === 'Both' || r.exists === 'Both(M)');
-                const onlyRefRows = finalRows.filter(r => r.exists === 'Only Ref');
-                const onlyCompRows = finalRows.filter(r => r.exists === 'Only Comp');
+                // const effectiveMappings = filterMappings(mappings, columnExclusion);
+                // const bothRows = finalRows.filter(r => r.exists === 'Both' || r.exists === 'Both(M)');
+                // const onlyRefRows = finalRows.filter(r => r.exists === 'Only Ref');
+                // const onlyCompRows = finalRows.filter(r => r.exists === 'Only Comp');
 
                 // Mismatch 재계산 (Smart Ignore 적용)
+                /*
                 const mismatchRows = bothRows.filter(r =>
                     Object.keys(r).some(key => {
                         if (!key.endsWith('_diff') || r[key] !== true) return false;
@@ -1458,10 +1459,12 @@ export const useGridStore = create<GridState>()(
                         return true;
                     })
                 );
+                */
 
-                const perfectMatch = bothRows.length - mismatchRows.length;
+                // const perfectMatch = bothRows.length - mismatchRows.length;
 
-                // 상세 요약 재계산
+                // 상세 요약 재계산 (디버깅용, 미사용)
+                /*
                 const detailedSummary = effectiveMappings
                     .filter(m => m.isTarget)
                     .map(m => {
@@ -1486,6 +1489,7 @@ export const useGridStore = create<GridState>()(
                             status: mismatchCount > 0 ? '값 불일치' : ''
                         };
                     });
+                */
 
                 // 5. 상태 업데이트
                 // 5. 상태 업데이트
@@ -2506,76 +2510,6 @@ export const useGridStore = create<GridState>()(
 
                     const { config, memos, columns } = projectState;
 
-                    // [NEW] Auto-Load Raw Files if available (Electron)
-                    let loadedRefWb: ParsedWorkbook | null = null;
-                    let loadedCompWb: ParsedWorkbook | null = null;
-                    let loadedRefFile: File | null = null;
-                    let loadedCompFile: File | null = null;
-
-                    if (window.electron && config.refFilePath && config.compFilePath) {
-                        try {
-                            console.log(`[Import] Attempting to auto - load raw files...`);
-                            console.log(`- Ref: ${config.refFilePath}`);
-                            console.log(`- Comp: ${config.compFilePath}`);
-
-                            // Load Reference File
-                            if (await window.electron.fileExists(config.refFilePath)) {
-                                const refBuffer = await window.electron.readFile(config.refFilePath);
-                                // [Fix] If refBuffer is ArrayBuffer, use it directly. If it has .buffer (Node Buffer), use that.
-                                const buffer = (refBuffer as any).buffer || refBuffer;
-                                loadedRefWb = await parseExcelFile(buffer, { fileName: config.refFileName });
-                                loadedRefFile = new File([buffer], config.refFileName || 'Reference.xlsx');
-                                console.log(`[Import] Loaded Reference Workbook: ${loadedRefWb.sheets.length} sheets`);
-                            } else {
-                                console.warn(`[Import] Reference file not found at: ${config.refFilePath}`);
-                            }
-
-                            // Load Comparison File
-                            if (await window.electron.fileExists(config.compFilePath)) {
-                                const compBuffer = await window.electron.readFile(config.compFilePath);
-                                // [Fix] Handle Buffer/ArrayBuffer
-                                const buffer = (compBuffer as any).buffer || compBuffer;
-                                loadedCompWb = await parseExcelFile(buffer, { fileName: config.compFileName });
-                                loadedCompFile = new File([buffer], config.compFileName || 'Comparison.xlsx');
-                                console.log(`[Import] Loaded Comparison Workbook: ${loadedCompWb.sheets.length} sheets`);
-                            } else {
-                                console.warn(`[Import] Comparison file not found at: ${config.compFilePath}`);
-                            }
-
-                        } catch (err) {
-                            console.error('[Import] Failed to auto-load raw files:', err);
-                            // Verify graceful degradation: Proceed without raw files
-                        }
-                    } else {
-                        console.log('[Import] Skipping auto-load: Not electron or missing paths');
-                    }
-
-                    // 2. Parse Rows from '결과' Sheet
-                    const workbook = await parseExcelFile(file);
-                    const resultSheet = workbook.sheets.find(s => s.name === '결과');
-
-                    if (!resultSheet) {
-                        throw new Error('프로젝트 파일 내에 [결과] 시트가 없습니다.');
-                    }
-
-                    // 3. Reconstruct Rows
-                    const titleToIdMap = new Map<string, string>();
-                    if (columns) {
-                        (columns as GridColumn[]).forEach(c => {
-                            titleToIdMap.set(c.title, c.id);
-                        });
-                    }
-
-                    const restoredRows: GridRow[] = resultSheet.data.map(sheetRow => {
-                        const row: any = {};
-                        Object.keys(sheetRow).forEach(header => {
-                            const id = titleToIdMap.get(header) || header;
-                            row[id] = sheetRow[header];
-                        });
-                        return row;
-                    });
-
-                    // 4. Restore Store State
                     const currentStore = get();
 
                     const resolveRestoredPath = (importedPath: string | null, importedFileName: string | null, currentPath: string | null) => {
@@ -2614,6 +2548,77 @@ export const useGridStore = create<GridState>()(
                         if (isExcel(path)) return path!.split(/[/\\]/).pop() || null;
                         return null;
                     };
+
+                    // [NEW] Auto-Load Raw Files if available (Electron)
+                    let loadedRefWb: ParsedWorkbook | null = null;
+                    let loadedCompWb: ParsedWorkbook | null = null;
+                    let loadedRefFile: File | null = null;
+                    let loadedCompFile: File | null = null;
+
+                    if (window.electron && finalRefPath && finalCompPath) {
+                        try {
+                            console.log(`[Import] Attempting to auto - load raw files...`);
+                            console.log(`- Ref: ${finalRefPath}`);
+                            console.log(`- Comp: ${finalCompPath}`);
+
+                            // Load Reference File
+                            if (await window.electron.fileExists(finalRefPath)) {
+                                const refBuffer = await window.electron.readFile(finalRefPath);
+                                // [Fix] If refBuffer is ArrayBuffer, use it directly. If it has .buffer (Node Buffer), use that.
+                                const buffer = (refBuffer as any).buffer || refBuffer;
+                                loadedRefWb = await parseExcelFile(buffer, { fileName: config.refFileName });
+                                loadedRefFile = new File([buffer], config.refFileName || 'Reference.xlsx');
+                                console.log(`[Import] Loaded Reference Workbook: ${loadedRefWb.sheets.length} sheets`);
+                            } else {
+                                console.warn(`[Import] Reference file not found at: ${finalRefPath}`);
+                            }
+
+                            // Load Comparison File
+                            if (await window.electron.fileExists(finalCompPath)) {
+                                const compBuffer = await window.electron.readFile(finalCompPath);
+                                // [Fix] Handle Buffer/ArrayBuffer
+                                const buffer = (compBuffer as any).buffer || compBuffer;
+                                loadedCompWb = await parseExcelFile(buffer, { fileName: config.compFileName });
+                                loadedCompFile = new File([buffer], config.compFileName || 'Comparison.xlsx');
+                                console.log(`[Import] Loaded Comparison Workbook: ${loadedCompWb.sheets.length} sheets`);
+                            } else {
+                                console.warn(`[Import] Comparison file not found at: ${finalCompPath}`);
+                            }
+
+                        } catch (err) {
+                            console.error('[Import] Failed to auto-load raw files:', err);
+                            // Verify graceful degradation: Proceed without raw files
+                        }
+                    } else {
+                        console.log('[Import] Skipping auto-load: Not electron or missing paths');
+                    }
+
+                    // 2. Parse Rows from '결과' Sheet
+                    const workbook = await parseExcelFile(file);
+                    const resultSheet = workbook.sheets.find(s => s.name === '결과');
+
+                    if (!resultSheet) {
+                        throw new Error('프로젝트 파일 내에 [결과] 시트가 없습니다.');
+                    }
+
+                    // 3. Reconstruct Rows
+                    const titleToIdMap = new Map<string, string>();
+                    if (columns) {
+                        (columns as GridColumn[]).forEach(c => {
+                            titleToIdMap.set(c.title, c.id);
+                        });
+                    }
+
+                    const restoredRows: GridRow[] = resultSheet.data.map(sheetRow => {
+                        const row: any = {};
+                        Object.keys(sheetRow).forEach(header => {
+                            const id = titleToIdMap.get(header) || header;
+                            row[id] = sheetRow[header];
+                        });
+                        return row;
+                    });
+
+                    // 4. Restore Store State
 
                     // [Fix] Rebuild columns based on the imported data to ensure 'Review Remarks' is correctly placed and frozen
                     const restoredAllGenerated = deduplicateColumns(config.allGeneratedColumns || columns || []);
